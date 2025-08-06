@@ -1,0 +1,89 @@
+model: qwen3:4b
+start_page: 1
+prompt_template: |
+  Extract trading transaction data from the following text and convert it to JSON format. Each transaction should be parsed into the specified schema below.
+
+  **Extraction Rules:**
+  1. The symbol field should ONLY contain the stock or option symbol, e.g., "AAPL" or "MRNA 07/11/2025 CALL 33.00".
+  2. The symbol field should NOT include any CUSIP, company name, or other identifiers. 
+  3. If the company name appears first, look ahead to the next lines for the actual ticker (usually before or after "CUSIP").
+  4. Extract numeric values without currency symbols (remove $ signs)
+  5. Preserve all date formats as MM/DD/YYYY
+
+  **Example Input:**
+  Academy Sports and Outdoors
+  ASO CUSIP: 00402L107
+  S
+  07/09/2025
+  07/10/2025
+  C
+  $44.0000
+  1
+  $44.00
+  $0.00
+  $0.00
+  $0.00
+  $44.00
+  OTC
+  1
+  U
+  **Example Output:**
+  [
+  {{
+      "symbol": "ASO",
+      "action": "sell",
+      "trade_date": "07/09/2025",
+      "settle_date": "07/10/2025",
+      "account_type": "C",
+      "price": 44.0,
+      "quantity": 1,
+      "principal": 44.0,
+      "commission": 0.0,
+      "contract_fee": 0.0,
+      "transaction_fee": 0.0,
+      "net_amount": 44.0,
+      "market": "OTC",
+      "cap": 1,
+      "us": "U"
+  }}]
+  **Example Input:**
+  MRNA 07/11/2025 CALL $33.00
+  B
+  07/08/2025
+  07/09/2025
+  C
+  $0.8000
+  1
+  $80.00
+  $0.00
+  $0.00
+  $0.04
+  $80.04
+  OTC
+  1
+  U
+  **Example Output:**
+  [
+  {{
+      "symbol": "MRNA 07/11/2025 CALL 33.00",
+      "action": "B",
+      "trade_date": "07/08/2025",
+      "settle_date": "07/09/2025",
+      "account_type": "C",
+      "price": 0.8,
+      "quantity": 1,
+      "principal": 80.0,
+      "commission": 0.0,
+      "contract_fee": 0.0,
+      "transaction_fee": 0.04,
+      "net_amount": 80.04,
+      "market": "OTC",
+      "cap": 1,
+      "us": "U"
+  }}]
+
+  **Input Text:**
+  {pdf_text}
+
+  Please extract all transactions and return only a valid JSON array with no additional commentary. Don't wrap it in markdown or any other format.
+  /no_think

@@ -1,0 +1,45 @@
+model: qwen3:4b
+start_page: 0
+prompt_template: |
+  You are a helpful assistant that extracts structured transaction data from unformatted PDF text.
+
+    ## EXAMPLE
+
+    Example input text:
+    23178-JGSPJR
+    You Sold
+        20
+        at
+    10.3918
+    Symbol:
+    BYN
+    06-27-23
+    06-29-23
+    06690B107
+    23178-AE6TC
+    Principal Amount
+            207.84
+    Settlement Amount         207.84
+
+    Expected output:
+    {
+        [
+            {
+                "date": "06-27-23",
+                "action": "Sell",
+                "symbol": "BYN",
+                "quantity": 20,
+                "price": 10.3918,
+                "total": 207.84,
+                "order no": "23178-AE6TC",
+                "reference no": "23178-JGSPJR",
+            }
+        ]
+    }
+
+    ### YOUR TASK
+
+    Below is the actual input text. Extract and return only the transactions from it as a JSON array. Trades are delimited by the text "NEW TRADE".
+
+    {pdf_text}
+    /no_think
