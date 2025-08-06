@@ -1,63 +1,67 @@
-import { CheckCircle, AlertCircle, File, Clock, Download } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table'
-import { Badge } from './ui/badge'
-import { Progress } from './ui/progress'
+import { File } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "./ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "./ui/table";
+import { Badge } from "./ui/badge";
+import { Progress } from "./ui/progress";
 
 interface UploadResult {
-  filename: string
-  status: 'processing' | 'failed'
-  reason?: string
-  job_id?: string
+  filename: string;
+  status: "processing" | "failed";
+  reason?: string;
+  job_id?: string;
 }
 
 interface JobStatus {
-  total_pages: number
-  processed_pages: number
-  status: 'processing' | 'completed' | 'failed'
+  total_pages: number;
+  processed_pages: number;
+  status: "processing" | "completed" | "failed";
 }
 
 interface JobTableProps {
-  uploadResults: UploadResult[]
-  jobStatuses: Record<string, JobStatus>
+  uploadResults: UploadResult[];
+  jobStatuses: Record<string, JobStatus>;
 }
 
 export function JobTable({ uploadResults, jobStatuses }: JobTableProps) {
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="h-4 w-4 text-green-500" />
-      case 'failed':
-        return <AlertCircle className="h-4 w-4 text-red-500" />
-      case 'processing':
-        return <Clock className="h-4 w-4 text-blue-500" />
-      default:
-        return <File className="h-4 w-4 text-gray-500" />
-    }
-  }
-
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'completed':
-        return <Badge variant="default" className="bg-green-100 text-green-700">Downloaded</Badge>
-      case 'failed':
-        return <Badge variant="destructive">Failed</Badge>
-      case 'processing':
-        return <Badge variant="secondary">Processing</Badge>
+      case "completed":
+        return (
+          <Badge variant="default" className="bg-green-100 text-green-700">
+            Downloaded
+          </Badge>
+        );
+      case "failed":
+        return <Badge variant="destructive">Failed</Badge>;
+      case "processing":
+        return <Badge variant="secondary">Processing</Badge>;
       default:
-        return <Badge variant="outline">Pending</Badge>
+        return <Badge variant="outline">Pending</Badge>;
     }
-  }
+  };
 
   const getProgressValue = (jobId: string) => {
-    const job = jobStatuses[jobId]
-    if (!job) return 0
-    if (job.status === 'completed') return 100
-    if (job.status === 'processing') {
-      return (job.processed_pages / job.total_pages) * 100
+    const job = jobStatuses[jobId];
+    if (!job) return 0;
+    if (job.status === "completed") return 100;
+    if (job.status === "processing") {
+      return (job.processed_pages / job.total_pages) * 100;
     }
-    return 0
-  }
+    return 0;
+  };
 
   if (uploadResults.length === 0) {
     return (
@@ -67,9 +71,7 @@ export function JobTable({ uploadResults, jobStatuses }: JobTableProps) {
             <File className="h-5 w-5" />
             Job Queue
           </CardTitle>
-          <CardDescription>
-            No jobs have been submitted yet
-          </CardDescription>
+          <CardDescription>No jobs have been submitted yet</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-center py-8 text-gray-500">
@@ -78,7 +80,7 @@ export function JobTable({ uploadResults, jobStatuses }: JobTableProps) {
           </div>
         </CardContent>
       </Card>
-    )
+    );
   }
 
   return (
@@ -103,24 +105,30 @@ export function JobTable({ uploadResults, jobStatuses }: JobTableProps) {
           </TableHeader>
           <TableBody>
             {uploadResults.map((result, index) => {
-              const jobId = result.job_id
-              const jobStatus = jobId ? jobStatuses[jobId] : null
-              const currentStatus = jobStatus?.status || result.status
-              
+              const jobId = result.job_id;
+              const jobStatus = jobId ? jobStatuses[jobId] : null;
+              const currentStatus = jobStatus?.status || result.status;
+
               return (
                 <TableRow key={index}>
                   <TableCell className="font-medium">
-                    <span className="truncate max-w-[200px]">{result.filename}</span>
+                    <span className="truncate max-w-[200px]">
+                      {result.filename}
+                    </span>
                   </TableCell>
+                  <TableCell>{getStatusBadge(currentStatus)}</TableCell>
                   <TableCell>
-                    {getStatusBadge(currentStatus)}
-                  </TableCell>
-                  <TableCell>
-                    {jobStatus && (jobStatus.status === 'processing' || jobStatus.status === 'completed') ? (
+                    {jobStatus &&
+                    (jobStatus.status === "processing" ||
+                      jobStatus.status === "completed") ? (
                       <div className="space-y-1">
-                        <Progress value={getProgressValue(jobId!)} className="h-2" />
+                        <Progress
+                          value={getProgressValue(jobId!)}
+                          className="h-2"
+                        />
                         <div className="text-xs text-gray-500">
-                          {jobStatus.processed_pages} / {jobStatus.total_pages} pages
+                          {jobStatus.processed_pages} / {jobStatus.total_pages}{" "}
+                          pages
                         </div>
                       </div>
                     ) : (
@@ -128,11 +136,11 @@ export function JobTable({ uploadResults, jobStatuses }: JobTableProps) {
                     )}
                   </TableCell>
                 </TableRow>
-              )
+              );
             })}
           </TableBody>
         </Table>
       </CardContent>
     </Card>
-  )
-} 
+  );
+}

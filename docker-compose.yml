@@ -9,6 +9,8 @@ services:
       - ./backend/output:/app/output
     environment:
       - PYTHONPATH=/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - app-network

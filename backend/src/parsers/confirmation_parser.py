@@ -90,7 +90,9 @@ class ConfirmationParser:
         """
         Call the AI model with the given prompt and return the response.
         """
-        response = await ollama.AsyncClient().chat(
+        # Use Docker host to access Ollama service running on the host machine
+        client = ollama.AsyncClient(host="host.docker.internal:11434")
+        response = await client.chat(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             format=format.model_json_schema(),

@@ -211,7 +211,7 @@ async def health_check():
     """Health check endpoint that verifies Ollama is running."""
     try:
         # Try to connect to Ollama and list models
-        client = ollama.AsyncClient()
+        client = ollama.AsyncClient(host="host.docker.internal:11434")
         models = await client.list()
         return HealthResponse(
             status="healthy",

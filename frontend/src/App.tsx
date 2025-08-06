@@ -37,7 +37,7 @@ function App() {
   useEffect(() => {
     const checkHealth = async () => {
       try {
-        const response = await axios.get('http://localhost:8000/health')
+        const response = await axios.get('/api/health')
         setHealthStatus(response.data)
       } catch (error) {
         setHealthStatus({
@@ -61,7 +61,7 @@ function App() {
   // WebSocket connection
   useEffect(() => {
     const connectWebSocket = () => {
-      const ws = new WebSocket('ws://localhost:8000/ws')
+      const ws = new WebSocket(`ws://${window.location.host}/ws`)
       
       ws.onopen = () => {
         console.log('WebSocket connected')
@@ -73,7 +73,7 @@ function App() {
           
           if (data.event === 'file_ready') {
             // Download the file automatically
-            const response = await axios.get(`http://localhost:8000/download/${data.filename}`, {
+            const response = await axios.get(`/api/download/${data.filename}`, {
               responseType: 'blob'
             })
             
@@ -129,7 +129,7 @@ function App() {
     files.forEach(file => formData.append('files', file))
 
     try {
-      const response = await axios.post('http://localhost:8000/upload', formData, {
+      const response = await axios.post('/api/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
