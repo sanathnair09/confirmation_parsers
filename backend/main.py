@@ -12,9 +12,9 @@ from fastapi import (
 )
 from pydantic import BaseModel
 
-from backend.src.parsers.confirmation_parser import Broker, ConfirmationParser
-from backend.src.utils.job_manager import JobManager, JobStatus
-from backend.src.utils.websocket_manager import WebSocketManager
+from src.parsers.confirmation_parser import Broker, ConfirmationParser
+from src.utils.job_manager import JobManager, JobStatus
+from src.utils.websocket_manager import WebSocketManager
 
 app = FastAPI()
 

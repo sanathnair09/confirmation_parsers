@@ -8,8 +8,8 @@ import polars as pl
 from pydantic import BaseModel
 import pymupdf
 
-from backend.src.utils.config_loader import LLMConfigLoader
-from backend.src.utils.job_manager import JobManager
+from src.utils.config_loader import LLMConfigLoader
+from src.utils.job_manager import JobManager
 
 
 class Broker(Enum):
