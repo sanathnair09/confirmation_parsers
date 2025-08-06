@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { Button } from './components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card'
-import { Progress } from './components/ui/progress'
-import { Upload, File, Download, CheckCircle, AlertCircle } from 'lucide-react'
+import { Activity } from 'lucide-react'
 import axios from 'axios'
+import { HealthStatus } from './components/HealthStatus'
+import { FileUpload } from './components/FileUpload'
+import { JobTable } from './components/JobTable'
 
 interface UploadResult {
   filename: string
@@ -18,13 +18,45 @@ interface JobStatus {
   status: 'processing' | 'completed' | 'failed'
 }
 
+interface HealthStatus {
+  status: string
+  ollama_available: boolean
+  message: string
+}
+
 function App() {
   const [files, setFiles] = useState<File[]>([])
   const [uploadResults, setUploadResults] = useState<UploadResult[]>([])
   const [jobStatuses, setJobStatuses] = useState<Record<string, JobStatus>>({})
   const [isUploading, setIsUploading] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null)
+  const [isCheckingHealth, setIsCheckingHealth] = useState(true)
   const wsRef = useRef<WebSocket | null>(null)
+
+  // Health check effect
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const response = await axios.get('http://localhost:8000/health')
+        setHealthStatus(response.data)
+      } catch (error) {
+        setHealthStatus({
+          status: 'unhealthy',
+          ollama_available: false,
+          message: 'Failed to connect to backend server'
+        })
+      } finally {
+        setIsCheckingHealth(false)
+      }
+    }
+
+    checkHealth()
+    
+    // Check health every 30 seconds
+    const interval = setInterval(checkHealth, 30000)
+    
+    return () => clearInterval(interval)
+  }, [])
 
   // WebSocket connection
   useEffect(() => {
@@ -38,6 +70,7 @@ function App() {
       ws.onmessage = async (event) => {
         try {
           const data = JSON.parse(event.data)
+          
           if (data.event === 'file_ready') {
             // Download the file automatically
             const response = await axios.get(`http://localhost:8000/download/${data.filename}`, {
@@ -88,13 +121,6 @@ function App() {
     }
   }, [])
 
-
-
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(event.target.files || [])
-    setFiles(selectedFiles)
-  }
-
   const handleUpload = async () => {
     if (files.length === 0) return
 
@@ -111,9 +137,6 @@ function App() {
 
       setUploadResults(response.data.results)
       setFiles([])
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
     } catch (error) {
       console.error('Upload error:', error)
     } finally {
@@ -121,137 +144,48 @@ function App() {
     }
   }
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="h-4 w-4 text-green-500" />
-      case 'failed':
-        return <AlertCircle className="h-4 w-4 text-red-500" />
-      default:
-        return <File className="h-4 w-4 text-blue-500" />
-    }
-  }
+  const isUploadDisabled = isCheckingHealth || !healthStatus?.ollama_available
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-2xl mx-auto">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="h-5 w-5" />
-              PDF Upload Tool
-            </CardTitle>
-            <CardDescription>
-              Upload multiple PDF confirmation files to process them automatically
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* File Upload Section */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept=".pdf"
-                  onChange={handleFileSelect}
-                  className="hidden"
-                />
-                <Button
-                  onClick={() => fileInputRef.current?.click()}
-                  variant="outline"
-                  className="flex items-center gap-2"
-                >
-                  <Upload className="h-4 w-4" />
-                  Select PDF Files
-                </Button>
-                {files.length > 0 && (
-                  <span className="text-sm text-gray-600">
-                    {files.length} file(s) selected
-                  </span>
-                )}
-              </div>
-
-              {files.length > 0 && (
-                <div className="space-y-2">
-                  {files.map((file, index) => (
-                    <div key={index} className="flex items-center gap-2 text-sm">
-                      <File className="h-4 w-4 text-gray-500" />
-                      {file.name}
-                    </div>
-                  ))}
-                  <Button
-                    onClick={handleUpload}
-                    disabled={isUploading}
-                    className="w-full"
-                  >
-                    {isUploading ? 'Uploading...' : 'Upload Files'}
-                  </Button>
-                </div>
-              )}
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-3">
+              <Activity className="h-8 w-8 text-blue-600" />
+              <h1 className="text-xl font-semibold text-gray-900">
+                Confirmation Parser
+              </h1>
             </div>
+          </div>
+        </div>
+      </header>
 
-            {/* Upload Results */}
-            {uploadResults.length > 0 && (
-              <div className="space-y-3">
-                <h3 className="font-medium">Upload Results</h3>
-                <div className="space-y-2">
-                  {uploadResults.map((result, index) => (
-                    <div key={index} className="flex items-center gap-2 text-sm">
-                      {getStatusIcon(result.status)}
-                      <span className="flex-1">{result.filename}</span>
-                      <span className={`text-xs px-2 py-1 rounded ${
-                        result.status === 'processing' 
-                          ? 'bg-blue-100 text-blue-700' 
-                          : 'bg-red-100 text-red-700'
-                      }`}>
-                        {result.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Left Column - Upload and Health */}
+          <div className="lg:col-span-1 space-y-6">
+            <HealthStatus healthStatus={healthStatus} />
+            <FileUpload
+              files={files}
+              onFilesChange={setFiles}
+              onUpload={handleUpload}
+              isUploading={isUploading}
+              isDisabled={isUploadDisabled}
+            />
+          </div>
 
-            {/* Job Progress */}
-            {Object.keys(jobStatuses).length > 0 && (
-              <div className="space-y-3">
-                <h3 className="font-medium">Processing Status</h3>
-                <div className="space-y-3">
-                  {Object.entries(jobStatuses).map(([jobId, status]) => (
-                    <div key={jobId} className="space-y-2">
-                      <div className="flex items-center gap-2 text-sm">
-                        {getStatusIcon(status.status)}
-                        <span>Job {jobId}</span>
-                        <span className={`text-xs px-2 py-1 rounded ${
-                          status.status === 'completed' 
-                            ? 'bg-green-100 text-green-700'
-                            : status.status === 'failed'
-                            ? 'bg-red-100 text-red-700'
-                            : 'bg-blue-100 text-blue-700'
-                        }`}>
-                          {status.status}
-                        </span>
-                      </div>
-                      {status.status === 'processing' && (
-                        <div className="space-y-1">
-                          <Progress 
-                            value={(status.processed_pages / status.total_pages) * 100} 
-                            className="h-2"
-                          />
-                          <div className="text-xs text-gray-500">
-                            {status.processed_pages} / {status.total_pages} pages
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          {/* Right Column - Job Table */}
+          <div className="lg:col-span-2">
+            <JobTable 
+              uploadResults={uploadResults}
+              jobStatuses={jobStatuses}
+            />
+          </div>
+        </div>
+      </main>
     </div>
   )
 }

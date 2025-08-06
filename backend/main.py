@@ -12,6 +12,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import ollama
 
 from src.parsers.confirmation_parser import Broker, ConfirmationParser
 from src.utils.job_manager import JobManager, JobStatus
@@ -82,6 +83,12 @@ class FidelityResponseList(BaseModel):
     data: list[FidelityResponse]
 
 
+class HealthResponse(BaseModel):
+    status: str
+    ollama_available: bool
+    message: str
+
+
 def upload_response(
     filename, status: str, /, reason: str | None = None, job_id: str | None = None
 ):
@@ -111,7 +118,7 @@ async def process_file_background(
         date = transactions[0].get("trade_date", "unknown").replace("/", "_")
         output_file = f"rh_{date}.csv"
     elif parser.broker == Broker.FIDELITY:
-        date = transactions[0].date.replace("-", "_")
+        date = transactions[0].get("date", "unknown").replace("-", "_")
         output_file = f"fidelity_{date}.csv"
     output_path = os.path.join(output_dir, output_file)
     parser.to_csv(transactions, output_path)
@@ -197,3 +204,23 @@ async def download_file(filename: str):
     return FileResponse(
         os.path.join(output_dir, filename), media_type="text/csv", filename=filename
     )
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint that verifies Ollama is running."""
+    try:
+        # Try to connect to Ollama and list models
+        client = ollama.AsyncClient()
+        models = await client.list()
+        return HealthResponse(
+            status="healthy",
+            ollama_available=True,
+            message="Ollama is running and accessible"
+        )
+    except Exception as e:
+        return HealthResponse(
+            status="unhealthy",
+            ollama_available=False,
+            message=f"Ollama connection failed: {str(e)}"
+        )
