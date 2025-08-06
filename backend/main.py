@@ -11,12 +11,16 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 import ollama
 
 from src.parsers.confirmation_parser import Broker, ConfirmationParser
 from src.utils.job_manager import JobManager, JobStatus
 from src.utils.websocket_manager import WebSocketManager
+from src.models.responses import (
+    RobinhoodResponseList,
+    FidelityResponseList,
+    HealthResponse,
+)
 
 app = FastAPI()
 
@@ -29,12 +33,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+# Directory setup
 uploads_dir = "./uploads"
 output_dir = "./output"
 
 os.makedirs(uploads_dir, exist_ok=True)
 os.makedirs(output_dir, exist_ok=True)
+
+# Initialize managers and parsers
 ws_manager = WebSocketManager()
 job_manager = JobManager(ws_manager)
 
@@ -46,52 +52,10 @@ fidelity_parser = ConfirmationParser(
 )
 
 
-class RobinhoodResponse(BaseModel):
-    symbol: str
-    action: str  # Buy or Sell
-    trade_date: str
-    settle_date: str
-    account_type: str
-    price: float
-    quantity: int
-    principal: float
-    commission: float
-    contract_fee: float
-    transaction_fee: float
-    net_amount: float
-    market: str  # Market type, e.g., "NASDAQ"
-    cap: str  # Capitalization type, e.g., "Large Cap"
-    us: str
-
-
-class RobinhoodResponseList(BaseModel):
-    data: list[RobinhoodResponse]
-
-
-class FidelityResponse(BaseModel):
-    date: str
-    action: str
-    symbol: str
-    quantity: int
-    price: float
-    total: float
-    order_no: str
-    reference_no: str
-
-
-class FidelityResponseList(BaseModel):
-    data: list[FidelityResponse]
-
-
-class HealthResponse(BaseModel):
-    status: str
-    ollama_available: bool
-    message: str
-
-
 def upload_response(
     filename, status: str, /, reason: str | None = None, job_id: str | None = None
 ):
+    """Helper function to create upload response."""
     if reason:
         return {"filename": filename, "status": status, "reason": reason}
     return {"filename": filename, "status": status, "job_id": job_id}
@@ -113,6 +77,8 @@ async def process_file_background(
         print(f"[{job_id}] Background processing failed: {e}")
         job_manager.fail_job(job_id)
         return
+    
+    # Generate output filename based on broker
     output_file = f"{job_id}.csv"
     if parser.broker == Broker.ROBINHOOD:
         date = transactions[0].get("trade_date", "unknown").replace("/", "_")
@@ -120,6 +86,7 @@ async def process_file_background(
     elif parser.broker == Broker.FIDELITY:
         date = transactions[0].get("date", "unknown").replace("-", "_")
         output_file = f"fidelity_{date}.csv"
+    
     output_path = os.path.join(output_dir, output_file)
     parser.to_csv(transactions, output_path)
     await ws_manager.send_file_ready(output_file)
@@ -129,6 +96,7 @@ async def process_file_background(
 async def upload_files(
     background_tasks: BackgroundTasks, files: list[UploadFile] = File(...)
 ):
+    """Upload and process PDF confirmation files."""
     results = []
 
     for file in files:
@@ -144,14 +112,16 @@ async def upload_files(
             )
             continue
 
+        # Save uploaded file
         file_path = os.path.join(uploads_dir, file.filename)
-
         with open(file_path, "wb") as out_file:
             content = await file.read()
             out_file.write(content)
 
+        # Determine broker and process accordingly
         broker = ConfirmationParser.determine_broker(file_path)
         print(f"Detected broker: {broker.value}")
+        
         if broker == Broker.ROBINHOOD:
             start_page = 1  # Start from the second page for Robinhood
             job_id = await job_manager.create(
@@ -179,16 +149,15 @@ async def upload_files(
                 upload_response(file.filename, "failed", reason="Unknown broker.")
             )
             continue
+            
         results.append(upload_response(file.filename, "processing", job_id=job_id))
 
     return {"results": results}
 
 
-
-
-
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time updates."""
     await ws_manager.connect(websocket)
     try:
         while True:
@@ -199,6 +168,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/download/{filename}")
 async def download_file(filename: str):
+    """Download processed CSV files."""
     if not os.path.exists(os.path.join(output_dir, filename)):
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(
