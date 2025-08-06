@@ -1,12 +1,12 @@
-from enum import Enum
 import time
+from enum import Enum
 from typing import Generator
 
 import ollama
 import orjson as json
 import polars as pl
-from pydantic import BaseModel
 import pymupdf
+from pydantic import BaseModel
 
 from src.utils.config_loader import LLMConfigLoader
 from src.utils.job_manager import JobManager
@@ -119,7 +119,9 @@ class ConfirmationParser:
             try:
                 text = self._clean_pdf_text(text)
                 prompt = self._build_prompt(text)
-                raw_response = await self._call_model(prompt, response_format, model=model)
+                raw_response = await self._call_model(
+                    prompt, response_format, model=model
+                )
                 cleaned_json = self._clean_model_response(raw_response)
                 all_transactions.extend(cleaned_json)
 
@@ -127,14 +129,14 @@ class ConfirmationParser:
                 print(
                     f"[{job_id}] Processed page {page}: {len(cleaned_json)} transactions found"
                 )
-                self._job_manager.increment_progress(job_id)
+                await self._job_manager.increment_progress(job_id)
             except Exception as e:
                 print(f"[{job_id}] Error processing page {page}: {e}")
-                self._job_manager.fail_job(job_id)
+                await self._job_manager.fail_job(job_id)
                 return all_transactions
 
         end_time = time.perf_counter()
-        self._job_manager.complete_job(job_id)
+        await self._job_manager.complete_job(job_id)
         print(f"[{job_id}] SUMMARY:")
         print(f"[{job_id}] Total pages processed: {page}")
         print(f"[{job_id}] Total transactions found: {len(all_transactions)}")

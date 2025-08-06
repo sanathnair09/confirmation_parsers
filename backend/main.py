@@ -10,6 +10,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from src.parsers.confirmation_parser import Broker, ConfirmationParser
@@ -18,14 +19,23 @@ from src.utils.websocket_manager import WebSocketManager
 
 app = FastAPI()
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Vite dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 uploads_dir = "./uploads"
 output_dir = "./output"
 
 os.makedirs(uploads_dir, exist_ok=True)
 os.makedirs(output_dir, exist_ok=True)
-job_manager = JobManager()
 ws_manager = WebSocketManager()
+job_manager = JobManager(ws_manager)
 
 rh_parser = ConfirmationParser(
     "./configs/robinhood.yaml", Broker.ROBINHOOD, job_manager
@@ -137,7 +147,7 @@ async def upload_files(
         print(f"Detected broker: {broker.value}")
         if broker == Broker.ROBINHOOD:
             start_page = 1  # Start from the second page for Robinhood
-            job_id = job_manager.create(
+            job_id = await job_manager.create(
                 ConfirmationParser.num_pages(file_path) - start_page
             )
             background_tasks.add_task(
@@ -149,7 +159,7 @@ async def upload_files(
                 start_page,
             )
         elif broker == Broker.FIDELITY:
-            job_id = job_manager.create(ConfirmationParser.num_pages(file_path))
+            job_id = await job_manager.create(ConfirmationParser.num_pages(file_path))
             background_tasks.add_task(
                 process_file_background,
                 file_path,
@@ -167,14 +177,7 @@ async def upload_files(
     return {"results": results}
 
 
-@app.get("/status/{job_id}")
-async def get_job_status(job_id: str) -> JobStatus | None:
-    return job_manager.get_job_status(job_id)
 
-
-@app.get("/status")
-async def get_all_jobs_status() -> dict[str, JobStatus]:
-    return job_manager.get_all_jobs_status()
 
 
 @app.websocket("/ws")
