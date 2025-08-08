@@ -1,11 +1,12 @@
+import os
 import time
 from enum import Enum
 from typing import Generator
 
-import ollama
 import orjson as json
 import polars as pl
 import pymupdf
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from src.utils.config_loader import LLMConfigLoader
@@ -82,22 +83,38 @@ class ConfirmationParser:
 
         # # Fallback: return trimmed raw if no valid JSON found
         # return raw_output.strip()
-        return json.loads(raw_output.strip())["data"]
+        return json.loads(raw_output)["data"]
 
     async def _call_model(
-        self, prompt: str, format: BaseModel, model: str = "qwen3:4b"
+        self,
+        prompt: str,
+        format,
+        model: str = "qwen3:4b",
+        mode: str = "ollama",
     ) -> str:
         """
         Call the AI model with the given prompt and return the response.
         """
-        # Use Docker host to access Ollama service running on the host machine
-        client = ollama.AsyncClient(host="host.docker.internal:11434")
-        response = await client.chat(
+        base_url = os.getenv("OLLAMA_URL", "http://localhost:11434/v1")
+        api_key = "ollama" if mode == "ollama" else os.getenv("OPENAI_API_KEY")
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        client.models.list()
+        response = await client.chat.completions.parse(
             model=model,
-            messages=[{"role": "user", "content": prompt}],
-            format=format.model_json_schema(),
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful data extraction assistant, specializing in extracting data from raw text into structured json according to the provided schema.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            response_format=format,
         )
-        return response["message"]["content"]
+        return (
+            response.choices[0].message.content
+            if response.choices and response.choices[0].message.content
+            else ""
+        )
 
     async def parse_confirmation_file(
         self,
@@ -138,7 +155,7 @@ class ConfirmationParser:
                 return all_transactions
 
         end_time = time.perf_counter()
-        await self._job_manager.complete_job(job_id)
+        await self._job_manager.complete_job(job_id, end_time - start_time)
         print(f"[{job_id}] SUMMARY:")
         print(f"[{job_id}] Total pages processed: {page}")
         print(f"[{job_id}] Total transactions found: {len(all_transactions)}")

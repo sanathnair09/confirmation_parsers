@@ -6,52 +6,58 @@ from pydantic import BaseModel
 class JobStatus(BaseModel):
     total_pages: int
     processed_pages: int
-    status: str  # "processing", "completed", "failed"
+    status: str  # "processing", "completed", "failed", "downloaded"
+    total_time: float
+    output_filename: str | None = None
 
 
 class JobManager:
-    def __init__(self, ws_manager=None):
+    def __init__(self):
         self._jobs: dict[str, JobStatus] = {}
-        self._ws_manager = ws_manager
 
     async def create(self, total_pages: int) -> str:
         """Create a new job and return its ID."""
         job_id = uuid4().hex
         self._jobs[job_id] = JobStatus(
-            total_pages=total_pages, 
-            processed_pages=0, 
-            status="processing"
+            total_pages=total_pages,
+            processed_pages=0,
+            status="processing",
+            total_time=0.0,
         )
-        await self._send_update(job_id)
         return job_id
 
     async def increment_progress(self, job_id: str) -> None:
         """Increment the progress of a job."""
         if job_id in self._jobs:
             job = self._jobs[job_id]
-            if job.status == "processing" and job.processed_pages < job.total_pages:
+            if job.status == "processing":
                 job.processed_pages += 1
-                await self._send_update(job_id)
 
     async def fail_job(self, job_id: str) -> None:
         """Mark a job as failed."""
         if job_id in self._jobs:
             job = self._jobs[job_id]
             job.status = "failed"
-            await self._send_update(job_id)
 
-    async def complete_job(self, job_id: str) -> None:
+    async def complete_job(self, job_id: str, total_time: float) -> None:
         """Complete a job"""
         if job_id in self._jobs:
             job = self._jobs[job_id]
             job.status = "completed"
-            job.processed_pages = job.total_pages
-            await self._send_update(job_id)
+            job.total_time = total_time
 
-    async def _send_update(self, job_id: str) -> None:
-        """Send job status update via WebSocket if available."""
-        if self._ws_manager and job_id in self._jobs:
-            try:
-                await self._ws_manager.send_job_update(job_id, self._jobs[job_id].model_dump())
-            except Exception as e:
-                print(f"Error sending WebSocket update for job {job_id}: {e}")
+    async def set_output_filename(self, job_id: str, filename: str) -> None:
+        """Attach the output filename to a job."""
+        if job_id in self._jobs:
+            job = self._jobs[job_id]
+            job.output_filename = filename
+
+    async def set_downloaded(self, job_id: str) -> None:
+        """Set a job as downloaded."""
+        if job_id in self._jobs:
+            job = self._jobs[job_id]
+            job.status = "downloaded"
+
+    async def get_status(self) -> dict[str, JobStatus]:
+        """Get the status of all jobs."""
+        return self._jobs

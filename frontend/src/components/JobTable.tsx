@@ -16,32 +16,26 @@ import {
 } from "./ui/table";
 import { Badge } from "./ui/badge";
 import { Progress } from "./ui/progress";
-
-interface UploadResult {
-  filename: string;
-  status: "processing" | "failed";
-  reason?: string;
-  job_id?: string;
-}
-
-interface JobStatus {
-  total_pages: number;
-  processed_pages: number;
-  status: "processing" | "completed" | "failed";
-}
+import type { JobStatus } from "../types";
 
 interface JobTableProps {
-  uploadResults: UploadResult[];
   jobStatuses: Record<string, JobStatus>;
+  jobIdToFilename: Record<string, string>;
 }
 
-export function JobTable({ uploadResults, jobStatuses }: JobTableProps) {
+export function JobTable({ jobStatuses, jobIdToFilename }: JobTableProps) {
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case "downloaded":
+        return (
+          <Badge variant="default" className="bg-blue-100 text-blue-700">
+            Downloaded
+          </Badge>
+        );
       case "completed":
         return (
           <Badge variant="default" className="bg-green-100 text-green-700">
-            Downloaded
+            Completed
           </Badge>
         );
       case "failed":
@@ -56,14 +50,15 @@ export function JobTable({ uploadResults, jobStatuses }: JobTableProps) {
   const getProgressValue = (jobId: string) => {
     const job = jobStatuses[jobId];
     if (!job) return 0;
-    if (job.status === "completed") return 100;
+    if (job.status === "completed" || job.status === "downloaded") return 100;
     if (job.status === "processing") {
       return (job.processed_pages / job.total_pages) * 100;
     }
     return 0;
   };
 
-  if (uploadResults.length === 0) {
+  const jobIds = Object.keys(jobStatuses)
+  if (jobIds.length === 0) {
     return (
       <Card>
         <CardHeader>
@@ -101,29 +96,28 @@ export function JobTable({ uploadResults, jobStatuses }: JobTableProps) {
               <TableHead>File</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Progress</TableHead>
+              <TableHead className="text-right">Time</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {uploadResults.map((result, index) => {
-              const jobId = result.job_id;
-              const jobStatus = jobId ? jobStatuses[jobId] : null;
-              const currentStatus = jobStatus?.status || result.status;
+            {jobIds.map((jobId) => {
+              const jobStatus = jobStatuses[jobId]
+              const filename = jobIdToFilename[jobId] ?? jobId
+              const currentStatus = jobStatus?.status ?? 'processing'
 
               return (
-                <TableRow key={index}>
+                <TableRow key={jobId}>
                   <TableCell className="font-medium">
                     <span className="truncate max-w-[200px]">
-                      {result.filename}
+                      {filename}
                     </span>
                   </TableCell>
                   <TableCell>{getStatusBadge(currentStatus)}</TableCell>
                   <TableCell>
-                    {jobStatus &&
-                    (jobStatus.status === "processing" ||
-                      jobStatus.status === "completed") ? (
+                    {jobStatus && (jobStatus.status === "processing" || jobStatus.status === "completed") ? (
                       <div className="space-y-1">
                         <Progress
-                          value={getProgressValue(jobId!)}
+                          value={getProgressValue(jobId)}
                           className="h-2"
                         />
                         <div className="text-xs text-gray-500">
@@ -134,6 +128,13 @@ export function JobTable({ uploadResults, jobStatuses }: JobTableProps) {
                     ) : (
                       <span className="text-sm text-gray-500">-</span>
                     )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {typeof jobStatus?.total_time === 'number' && jobStatus.total_time > 0
+                      ? `${jobStatus.total_time.toFixed(2)}s`
+                      : jobStatus?.status === 'processing'
+                        ? '—'
+                        : '-'}
                   </TableCell>
                 </TableRow>
               );

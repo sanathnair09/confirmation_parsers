@@ -1,27 +1,25 @@
 import os
 
-from fastapi.responses import FileResponse
+from dotenv import load_dotenv
 from fastapi import (
     BackgroundTasks,
     FastAPI,
     File,
     HTTPException,
     UploadFile,
-    WebSocket,
-    WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-import ollama
-
-from src.parsers.confirmation_parser import Broker, ConfirmationParser
-from src.utils.job_manager import JobManager, JobStatus
-from src.utils.websocket_manager import WebSocketManager
+from fastapi.responses import FileResponse
+from openai import AsyncOpenAI
 from src.models.responses import (
-    RobinhoodResponseList,
     FidelityResponseList,
     HealthResponse,
+    RobinhoodResponseList,
 )
+from src.parsers.confirmation_parser import Broker, ConfirmationParser
+from src.utils.job_manager import JobManager, JobStatus
 
+load_dotenv()
 app = FastAPI()
 
 # Add CORS middleware
@@ -41,8 +39,7 @@ os.makedirs(uploads_dir, exist_ok=True)
 os.makedirs(output_dir, exist_ok=True)
 
 # Initialize managers and parsers
-ws_manager = WebSocketManager()
-job_manager = JobManager(ws_manager)
+job_manager = JobManager()
 
 rh_parser = ConfirmationParser(
     "./configs/robinhood.yaml", Broker.ROBINHOOD, job_manager
@@ -75,9 +72,9 @@ async def process_file_background(
         )
     except Exception as e:
         print(f"[{job_id}] Background processing failed: {e}")
-        job_manager.fail_job(job_id)
+        await job_manager.fail_job(job_id)
         return
-    
+
     # Generate output filename based on broker
     output_file = f"{job_id}.csv"
     if parser.broker == Broker.ROBINHOOD:
@@ -86,10 +83,11 @@ async def process_file_background(
     elif parser.broker == Broker.FIDELITY:
         date = transactions[0].get("date", "unknown").replace("-", "_")
         output_file = f"fidelity_{date}.csv"
-    
+
     output_path = os.path.join(output_dir, output_file)
+    # Store the output filename on the job for frontend to fetch
+    await job_manager.set_output_filename(job_id, output_file)
     parser.to_csv(transactions, output_path)
-    await ws_manager.send_file_ready(output_file)
 
 
 @app.post("/upload")
@@ -121,7 +119,7 @@ async def upload_files(
         # Determine broker and process accordingly
         broker = ConfirmationParser.determine_broker(file_path)
         print(f"Detected broker: {broker.value}")
-        
+
         if broker == Broker.ROBINHOOD:
             start_page = 1  # Start from the second page for Robinhood
             job_id = await job_manager.create(
@@ -149,21 +147,21 @@ async def upload_files(
                 upload_response(file.filename, "failed", reason="Unknown broker.")
             )
             continue
-            
+
         results.append(upload_response(file.filename, "processing", job_id=job_id))
 
     return {"results": results}
 
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time updates."""
-    await ws_manager.connect(websocket)
-    try:
-        while True:
-            await websocket.receive_text()  # No-op: keeps connection alive
-    except WebSocketDisconnect:
-        ws_manager.disconnect()
+@app.get("/status")
+async def get_status():
+    return await job_manager.get_status()
+
+
+@app.post("/set-downloaded/{job_id}")
+async def set_downloaded(job_id: str):
+    await job_manager.set_downloaded(job_id)
+    return {"message": "Job marked as downloaded"}
 
 
 @app.get("/download/{filename}")
@@ -171,6 +169,7 @@ async def download_file(filename: str):
     """Download processed CSV files."""
     if not os.path.exists(os.path.join(output_dir, filename)):
         raise HTTPException(status_code=404, detail="File not found")
+
     return FileResponse(
         os.path.join(output_dir, filename), media_type="text/csv", filename=filename
     )
@@ -181,16 +180,18 @@ async def health_check():
     """Health check endpoint that verifies Ollama is running."""
     try:
         # Try to connect to Ollama and list models
-        client = ollama.AsyncClient(host="host.docker.internal:11434")
-        models = await client.list()
+        base_url = os.getenv("OLLAMA_URL", "http://localhost:11434/v1")
+        api_key = "ollama"
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        _ = await client.models.list()
         return HealthResponse(
             status="healthy",
             ollama_available=True,
-            message="Ollama is running and accessible"
+            message="Ollama is running and accessible",
         )
     except Exception as e:
         return HealthResponse(
             status="unhealthy",
             ollama_available=False,
-            message=f"Ollama connection failed: {str(e)}"
+            message=f"Ollama connection failed: {str(e)}",
         )

@@ -1,4 +1,4 @@
-model: qwen3:4b
+model: qwen3:8b
 start_page: 1
 prompt_template: |
   Extract trading transaction data from the following text and convert it to JSON format. Each transaction should be parsed into the specified schema below.

@@ -15,7 +15,10 @@ COPY uv.lock* ./
 RUN uv sync
 
 # Copy application code
-COPY . .
+COPY src ./src
+COPY main.py ./main.py
+COPY configs ./configs
+COPY .docker.env .env
 
 # Expose port 8000
 EXPOSE 8000

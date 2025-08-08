@@ -1,37 +1,20 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { Activity } from 'lucide-react'
 import axios from 'axios'
 import { HealthStatus } from './components/HealthStatus'
 import { FileUpload } from './components/FileUpload'
 import { JobTable } from './components/JobTable'
-
-interface UploadResult {
-  filename: string
-  status: 'processing' | 'failed'
-  reason?: string
-  job_id?: string
-}
-
-interface JobStatus {
-  total_pages: number
-  processed_pages: number
-  status: 'processing' | 'completed' | 'failed'
-}
-
-interface HealthStatus {
-  status: string
-  ollama_available: boolean
-  message: string
-}
+import type { HealthStatus as HealthStatusType, JobStatus, UploadResult } from './types'
+import { useJobStatusPolling } from './hooks/useJobStatusPolling'
 
 function App() {
   const [files, setFiles] = useState<File[]>([])
-  const [uploadResults, setUploadResults] = useState<UploadResult[]>([])
+  // Map job_id -> filename for display purposes (in-memory only)
+  const [jobIdToFilename, setJobIdToFilename] = useState<Record<string, string>>({})
   const [jobStatuses, setJobStatuses] = useState<Record<string, JobStatus>>({})
   const [isUploading, setIsUploading] = useState(false)
-  const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null)
+  const [healthStatus, setHealthStatus] = useState<HealthStatusType | null>(null)
   const [isCheckingHealth, setIsCheckingHealth] = useState(true)
-  const wsRef = useRef<WebSocket | null>(null)
 
   // Health check effect
   useEffect(() => {
@@ -39,7 +22,7 @@ function App() {
       try {
         const response = await axios.get('/api/health')
         setHealthStatus(response.data)
-      } catch (error) {
+      } catch {
         setHealthStatus({
           status: 'unhealthy',
           ollama_available: false,
@@ -58,68 +41,73 @@ function App() {
     return () => clearInterval(interval)
   }, [])
 
-  // WebSocket connection
-  useEffect(() => {
-    const connectWebSocket = () => {
-      const ws = new WebSocket(`ws://${window.location.host}/ws`)
-      
-      ws.onopen = () => {
-        console.log('WebSocket connected')
-      }
+  // Poll job statuses every 30s
+  useJobStatusPolling(setJobStatuses, 30000)
 
-      ws.onmessage = async (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          
-          if (data.event === 'file_ready') {
-            // Download the file automatically
-            const response = await axios.get(`/api/download/${data.filename}`, {
-              responseType: 'blob'
-            })
-            
-            const url = window.URL.createObjectURL(new Blob([response.data]))
-            const link = document.createElement('a')
-            link.href = url
-            link.setAttribute('download', data.filename)
-            document.body.appendChild(link)
-            link.click()
-            link.remove()
-            window.URL.revokeObjectURL(url)
-            
-            console.log(`Downloaded: ${data.filename}`)
-          } else if (data.event === 'job_update') {
-            // Update job status from WebSocket
-            setJobStatuses(prev => ({
-              ...prev,
-              [data.job_id]: data.status
-            }))
-          }
-        } catch (error) {
-          console.error('Error processing WebSocket message:', error)
+  // Trim filename mapping to known job IDs from status
+  useEffect(() => {
+    setJobIdToFilename(prev => {
+      const next: Record<string, string> = {}
+      for (const jobId of Object.keys(jobStatuses)) {
+        if (prev[jobId]) next[jobId] = prev[jobId]
+      }
+      return next
+    })
+  }, [jobStatuses])
+
+  // Auto-download when a job completes, then mark as downloaded
+  const [downloadInProgress, setDownloadInProgress] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    const triggerDownload = async (jobId: string, originalFilename: string) => {
+      try {
+        setDownloadInProgress(prev => ({ ...prev, [jobId]: true }))
+
+        // Prefer server-provided output filename when available
+        const serverFilename = jobStatuses[jobId]?.output_filename
+        const csvFilename = serverFilename
+          ? serverFilename
+          : (originalFilename.toLowerCase().endsWith('.pdf')
+              ? originalFilename.slice(0, -4) + '.csv'
+              : originalFilename + '.csv')
+
+        const url = `/api/download/${encodeURIComponent(csvFilename)}`
+        const response = await axios.get(url, { responseType: 'blob' })
+
+        const blobUrl = window.URL.createObjectURL(new Blob([response.data], { type: 'text/csv' }))
+        const link = document.createElement('a')
+        link.href = blobUrl
+        link.setAttribute('download', csvFilename)
+        document.body.appendChild(link)
+        link.click()
+        link.parentNode?.removeChild(link)
+        window.URL.revokeObjectURL(blobUrl)
+
+        // Mark job as downloaded on the server
+        await axios.post(`/api/set-downloaded/${encodeURIComponent(jobId)}`)
+
+        // Optimistically update local status
+        setJobStatuses(prev => ({
+          ...prev,
+          [jobId]: prev[jobId] ? { ...prev[jobId], status: 'downloaded' } as JobStatus : prev[jobId]
+        }))
+      } catch (e) {
+        if (import.meta.env.DEV) console.error('Auto-download failed for job', jobId, e)
+      } finally {
+        setDownloadInProgress(prev => ({ ...prev, [jobId]: false }))
+      }
+    }
+
+    for (const jobId of Object.keys(jobStatuses)) {
+      const status = jobStatuses[jobId]?.status
+      if (status === 'completed' && !downloadInProgress[jobId]) {
+        const originalFilename = jobIdToFilename[jobId]
+        if (originalFilename) {
+          triggerDownload(jobId, originalFilename)
         }
       }
-
-      ws.onclose = () => {
-        console.log('WebSocket disconnected')
-        // Reconnect after 5 seconds
-        setTimeout(connectWebSocket, 5000)
-      }
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error)
-      }
-
-      wsRef.current = ws
     }
-
-    connectWebSocket()
-
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close()
-      }
-    }
-  }, [])
+  }, [jobStatuses, jobIdToFilename, downloadInProgress])
 
   const handleUpload = async () => {
     if (files.length === 0) return
@@ -134,8 +122,24 @@ function App() {
           'Content-Type': 'multipart/form-data',
         },
       })
-
-      setUploadResults(response.data.results)
+      const results: UploadResult[] = response.data.results
+      // Capture any new job_id -> filename mappings
+      const mappings: Record<string, string> = {}
+      for (const r of results) {
+        if (r.job_id) {
+          mappings[r.job_id] = r.filename
+        }
+      }
+      if (Object.keys(mappings).length > 0) {
+        setJobIdToFilename(prev => ({ ...prev, ...mappings }))
+      }
+      // Immediately refresh job statuses after upload
+      try {
+        const statuses = await axios.get<Record<string, JobStatus>>('/api/status')
+        setJobStatuses(statuses.data)
+      } catch (e) {
+        if (import.meta.env.DEV) console.debug('Failed to refresh job statuses', e)
+      }
       setFiles([])
     } catch (error) {
       console.error('Upload error:', error)
@@ -179,10 +183,7 @@ function App() {
 
           {/* Right Column - Job Table */}
           <div className="lg:col-span-2">
-            <JobTable 
-              uploadResults={uploadResults}
-              jobStatuses={jobStatuses}
-            />
+            <JobTable jobStatuses={jobStatuses} jobIdToFilename={jobIdToFilename} />
           </div>
         </div>
       </main>
