@@ -42,6 +42,8 @@ export function JobTable({ jobStatuses, jobIdToFilename }: JobTableProps) {
         return <Badge variant="destructive">Failed</Badge>;
       case "processing":
         return <Badge variant="secondary">Processing</Badge>;
+      case "queuing":
+        return <Badge variant="outline">Queuing</Badge>;
       default:
         return <Badge variant="outline">Pending</Badge>;
     }

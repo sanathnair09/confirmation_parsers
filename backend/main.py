@@ -10,14 +10,15 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI  # type: ignore
 from src.models.responses import (
     FidelityResponseList,
     HealthResponse,
     RobinhoodResponseList,
 )
 from src.parsers.confirmation_parser import Broker, ConfirmationParser
-from src.utils.job_manager import JobManager, JobStatus
+from src.utils.job_manager import JobManager
+from src.utils.worker_pool import GlobalWorkerPool, GlobalParserJob
 
 load_dotenv()
 app = FastAPI()
@@ -48,6 +49,19 @@ fidelity_parser = ConfirmationParser(
     "./configs/fidelity.yaml", Broker.FIDELITY, job_manager
 )
 
+# Initialize a single global worker pool (6 workers) with broker dispatch
+broker_to_parser = {
+    Broker.ROBINHOOD: (rh_parser, RobinhoodResponseList),
+    Broker.FIDELITY: (fidelity_parser, FidelityResponseList),
+}
+global_pool = GlobalWorkerPool(
+    broker_to_parser=broker_to_parser,
+    job_manager=job_manager,
+    output_dir=output_dir,
+    num_workers=6,
+)
+global_pool.start()
+
 
 def upload_response(
     filename, status: str, /, reason: str | None = None, job_id: str | None = None
@@ -56,38 +70,6 @@ def upload_response(
     if reason:
         return {"filename": filename, "status": status, "reason": reason}
     return {"filename": filename, "status": status, "job_id": job_id}
-
-
-async def process_file_background(
-    file_path: str,
-    job_id: str,
-    parser: ConfirmationParser,
-    response_format,
-    start_page: int = 0,
-):
-    """Background function to process a file using the given parser."""
-    try:
-        transactions = await parser.parse_confirmation_file(
-            file_path, response_format, job_id, start_page
-        )
-    except Exception as e:
-        print(f"[{job_id}] Background processing failed: {e}")
-        await job_manager.fail_job(job_id)
-        return
-
-    # Generate output filename based on broker
-    output_file = f"{job_id}.csv"
-    if parser.broker == Broker.ROBINHOOD:
-        date = transactions[0].get("trade_date", "unknown").replace("/", "_")
-        output_file = f"rh_{date}.csv"
-    elif parser.broker == Broker.FIDELITY:
-        date = transactions[0].get("date", "unknown").replace("-", "_")
-        output_file = f"fidelity_{date}.csv"
-
-    output_path = os.path.join(output_dir, output_file)
-    # Store the output filename on the job for frontend to fetch
-    await job_manager.set_output_filename(job_id, output_file)
-    parser.to_csv(transactions, output_path)
 
 
 @app.post("/upload")
@@ -125,22 +107,23 @@ async def upload_files(
             job_id = await job_manager.create(
                 ConfirmationParser.num_pages(file_path) - start_page
             )
-            background_tasks.add_task(
-                process_file_background,
-                file_path,
-                job_id,
-                rh_parser,
-                RobinhoodResponseList,
-                start_page,
+            global_pool.enqueue(
+                GlobalParserJob(
+                    broker=broker,
+                    file_path=file_path,
+                    job_id=job_id,
+                    start_page=start_page,
+                )
             )
         elif broker == Broker.FIDELITY:
             job_id = await job_manager.create(ConfirmationParser.num_pages(file_path))
-            background_tasks.add_task(
-                process_file_background,
-                file_path,
-                job_id,
-                fidelity_parser,
-                FidelityResponseList,
+            global_pool.enqueue(
+                GlobalParserJob(
+                    broker=broker,
+                    file_path=file_path,
+                    job_id=job_id,
+                    start_page=0,
+                )
             )
         else:
             results.append(
@@ -148,7 +131,7 @@ async def upload_files(
             )
             continue
 
-        results.append(upload_response(file.filename, "processing", job_id=job_id))
+        results.append(upload_response(file.filename, "queuing", job_id=job_id))
 
     return {"results": results}
 

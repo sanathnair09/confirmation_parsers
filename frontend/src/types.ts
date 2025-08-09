@@ -1,6 +1,6 @@
 export interface UploadResult {
   filename: string
-  status: 'processing' | 'failed'
+  status: 'queuing' | 'processing' | 'failed'
   reason?: string
   job_id?: string
 }
@@ -8,7 +8,7 @@ export interface UploadResult {
 export interface JobStatus {
   total_pages: number
   processed_pages: number
-  status: 'processing' | 'completed' | 'failed' | 'downloaded'
+  status: 'queuing' | 'processing' | 'completed' | 'failed' | 'downloaded'
   total_time: number
   output_filename?: string
 }

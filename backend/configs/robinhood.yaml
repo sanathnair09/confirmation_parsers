@@ -9,6 +9,7 @@ prompt_template: |
   3. If the company name appears first, look ahead to the next lines for the actual ticker (usually before or after "CUSIP").
   4. Extract numeric values without currency symbols (remove $ signs)
   5. Preserve all date formats as MM/DD/YYYY
+  6. The cap field is a number from 1 to 8 (inclusive).
 
   **Example Input:**
   Academy Sports and Outdoors
