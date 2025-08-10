@@ -18,7 +18,7 @@ from src.models.responses import (
 )
 from src.parsers.confirmation_parser import Broker, ConfirmationParser
 from src.utils.job_manager import JobManager
-from src.utils.worker_pool import GlobalWorkerPool, GlobalParserJob
+from src.utils.worker_pool import GlobalParserJob, GlobalWorkerPool
 
 load_dotenv()
 app = FastAPI()
@@ -163,8 +163,8 @@ async def health_check():
     """Health check endpoint that verifies Ollama is running."""
     try:
         # Try to connect to Ollama and list models
-        base_url = os.getenv("OLLAMA_URL", "http://localhost:11434/v1")
-        api_key = "ollama"
+        base_url = os.getenv("LLM_URL", "http://localhost:11434/v1")
+        api_key = os.getenv("LLM_API_KEY", "ollama")
         client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         _ = await client.models.list()
         return HealthResponse(

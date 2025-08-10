@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from enum import Enum
 from typing import Generator
@@ -34,6 +35,7 @@ class ConfirmationParser:
         """
         doc = pymupdf.open(file_path)
         doc = doc[start_page:]
+        doc = doc[:-1]
         for page in doc:
             pdf_text = page.get_text("text")  # type: ignore
             yield pdf_text
@@ -61,7 +63,17 @@ class ConfirmationParser:
         Clean the PDF text by removing unwanted parts.
         By default, this method does nothing.
         """
-        return pdf_text
+        text = re.split(r"Page \d+ of \d+", pdf_text)[0]
+        text = re.sub(r"^.*2\*.*\n?", "", text, flags=re.MULTILINE)
+        text = re.sub(r"(Settlement Amount\s+\d+(?:\.\d+)?)(\s*)", r"\1\nNEW TRADE\n", text)
+        text = re.sub(r"^STEPHEN N SCHWARZ\s*$", "", text, flags=re.MULTILINE | re.IGNORECASE)
+        text = re.sub(r"^CHRISTOPHER SCHWARZ\s*$", "", text, flags=re.MULTILINE | re.IGNORECASE)
+        text = re.sub(r"^CHRISTOPHER G SCHWARZ\s*$", "", text, flags=re.MULTILINE | re.IGNORECASE)
+        text = re.sub(r"^15 WHIPPOORWILL RD\s*$", "", text, flags=re.MULTILINE | re.IGNORECASE)
+        text = re.sub(r"^WARWICK RI 02888-6119\s*$", "", text, flags=re.MULTILINE | re.IGNORECASE)
+        text = re.sub(r"^Individual Account #:\d+\s*$", "", text, flags=re.MULTILINE | re.IGNORECASE)
+        text = re.sub(r"^11 VEGA CT, IRVINE, CA 92617\s*$", "", text, flags=re.MULTILINE | re.IGNORECASE)
+        return text
 
     def _build_prompt(self, pdf_text: str) -> str:
         return self._config.prompt_template.replace("{pdf_text}", pdf_text)
@@ -95,10 +107,10 @@ class ConfirmationParser:
         """
         Call the AI model with the given prompt and return the response.
         """
-        base_url = os.getenv("OLLAMA_URL", "http://localhost:11434/v1")
-        api_key = "ollama" if mode == "ollama" else os.getenv("OPENAI_API_KEY")
+        base_url = os.getenv("LLM_URL", "http://localhost:11434/v1")
+        api_key = os.getenv("LLM_API_KEY", "ollama")
         client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        client.models.list()
+        model = "meta-llama/llama-4-maverick-17b-128e-instruct"
         response = await client.chat.completions.parse(
             model=model,
             messages=[
